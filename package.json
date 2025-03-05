@@ -1,0 +1,21 @@
+{
+  "name": "@ws-asyncapi/adapter-elysia",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "elysia": "^1.2.0"
+  },
+  "exports": {
+        ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "overrides": {
+    "@sinclair/typebox": "0.34.28"
+  }
+}
