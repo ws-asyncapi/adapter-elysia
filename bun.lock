@@ -5,6 +5,7 @@
       "name": "adapter-elysia",
       "devDependencies": {
         "@biomejs/biome": "^1.9.4",
+        "@sinclair/typebox": "^0.34.28",
         "@types/bun": "latest",
       },
       "peerDependencies": {
