@@ -1,7 +1,7 @@
 {
 	"name": "@ws-asyncapi/adapter-elysia",
 	"version": "0.0.1",
-	"description": "Elysia adapter for WebSocket AsyncAPI integration.",
+	"description": "Elysia adapter for WebSocket AsyncAPI integration",
 	"license": "MIT",
 	"type": "module",
 	"devDependencies": {
