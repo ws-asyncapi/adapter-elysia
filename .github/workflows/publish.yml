@@ -41,8 +41,8 @@ jobs:
             # - name: Prepare to JSR publish
             #   run: bun scripts/prepare-jsr.ts
 
-            - name: Type-check
-              run: tsc --noEmit
+            - name: Type-check and build
+              run: tsc --noEmit && bunx pkgroll
 
             # - name: Run tests
             #   run: bun test
@@ -56,11 +56,11 @@ jobs:
             #   run: bunx publint
 
             # - name: Setup Deno
-              # uses: denoland/setup-deno@v1
+            # uses: denoland/setup-deno@v1
 
             # - name: Publish package to JSR
-              # if: ${{ github.event.inputs.publish_to_jsr }}
-              # run: deno publish --allow-dirty --unstable-sloppy-imports
+            # if: ${{ github.event.inputs.publish_to_jsr }}
+            # run: deno publish --allow-dirty --unstable-sloppy-imports
 
             # - name: Install Node
             #   uses: actions/setup-node@v4
