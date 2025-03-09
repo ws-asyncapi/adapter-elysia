@@ -7,6 +7,20 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 		name: "ws-asyncapi-adapter",
 	});
 
+	app.onStart(({ server }) => {
+		if (server) {
+			for (const channel of channels) {
+				channel["~"].globalPublish = (
+					topic: string,
+					type: string,
+					data: any,
+				) => {
+					server.publish(topic, JSON.stringify([type, data]));
+				};
+			}
+		}
+	});
+
 	for (const channel of channels) {
 		app.ws(channel.address, {
 			body: t.Tuple([t.String(), t.Any()]),
