@@ -8,15 +8,13 @@
 		"@biomejs/biome": "^1.9.4",
 		"@sinclair/typebox": "^0.34.28",
 		"@types/bun": "latest",
-		"pkgroll": "^2.11.2",
-		"ws-asyncapi": "^0.0.3"
+		"pkgroll": "^2.11.2"
 	},
 	"scripts": {
 		"prepublishOnly": "bunx pkgroll"
 	},
 	"peerDependencies": {
-		"elysia": "^1.2.0",
-		"ws-asyncapi": "^0.0.3"
+		"elysia": "^1.2.0"
 	},
 	"exports": {
 		".": {
@@ -25,5 +23,8 @@
 			"require": "./dist/index.cjs"
 		}
 	},
-	"files": ["dist"]
+	"files": ["dist"],
+	"dependencies": {
+		"ws-asyncapi": "^0.0.3"
+	}
 }
