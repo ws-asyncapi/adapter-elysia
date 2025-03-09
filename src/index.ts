@@ -59,7 +59,7 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 					data: ws.data["asyncapi-data"],
 				}),
 			message: async (ws, message) => {
-				// @ts-expect-error
+				// @ts-ignore https://github.com/ws-asyncapi/adapter-elysia/actions/runs/13753755789/job/38457996320 works fine on ci but fails locally
 				const [type, data] = message;
 
 				const result = channel["~"].client.get(type);
