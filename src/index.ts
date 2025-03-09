@@ -10,6 +10,7 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 	for (const channel of channels) {
 		app.ws(channel.address, {
 			body: t.Tuple([t.String(), t.Any()]),
+			open: (ws) => channel["~"].onOpen?.(new WebSocketElysia(ws)),
 			message: async (ws, message) => {
 				const [type, data] = message;
 
