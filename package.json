@@ -9,14 +9,14 @@
 		"@sinclair/typebox": "^0.34.28",
 		"@types/bun": "latest",
 		"pkgroll": "^2.11.2",
-		"ws-asyncapi": "^0.0.2"
+		"ws-asyncapi": "^0.0.3"
 	},
 	"scripts": {
 		"prepublishOnly": "bunx pkgroll"
 	},
 	"peerDependencies": {
 		"elysia": "^1.2.0",
-		"ws-asyncapi": "^0.0.2"
+		"ws-asyncapi": "^0.0.3"
 	},
 	"exports": {
 		".": {
