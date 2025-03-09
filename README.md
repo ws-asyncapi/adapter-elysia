@@ -11,7 +11,7 @@ npm install @ws-asyncapi/adapter-elysia
 ## Usage
 
 ```typescript
-import { wsAsyncAPIAdapter } from "@ws-asyncapi/adapter-elysia;
+import { wsAsyncAPIAdapter } from "@ws-asyncapi/adapter-elysia";
 import { Elysia } from "elysia";
 import { Channel, getAsyncApiUI, getAsyncApiDocument } from "ws-asyncapi";
 import { Type } from "@sinclair/typebox";
@@ -25,13 +25,13 @@ const channel = new Channel("/test/:id", "test")
     )
     .clientMessage(
         "test",
-		({ ws, message }) => {
-			console.log(ws, message);
-			ws.send("response", { data: ["test", 1] });
-		},
-		Type.Object({
-			name: Type.String(),
-		}),
+        ({ ws, message }) => {
+            console.log(ws, message);
+            ws.send("response", { data: ["test", 1] });
+        },
+        Type.Object({
+            name: Type.String(),
+        })
     );
 
 const channels = [channel];
