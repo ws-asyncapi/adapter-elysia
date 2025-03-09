@@ -25,12 +25,13 @@ const channel = new Channel("/test/:id", "test")
     )
     .clientMessage(
         "test",
-        ({ ws, message }) => {
-            console.log(ws, message);
-        },
-        Type.Object({
-            name: Type.String(),
-        })
+		({ ws, message }) => {
+			console.log(ws, message);
+			ws.send("response", { data: ["test", 1] });
+		},
+		Type.Object({
+			name: Type.String(),
+		}),
     );
 
 const channels = [channel];
