@@ -17,6 +17,7 @@ import { Channel, getAsyncApiUI, getAsyncApiDocument } from "ws-asyncapi";
 import { Type } from "@sinclair/typebox";
 
 const channel = new Channel("/test/:id", "test")
+    .$typeChannels<`some:${number}`>()
     .serverMessage(
         "response",
         Type.Object({
@@ -32,7 +33,10 @@ const channel = new Channel("/test/:id", "test")
         Type.Object({
             name: Type.String(),
         })
-    );
+    )
+    .onOpen((ws) => {
+        ws.subscribe("some:1");
+    });
 
 const channels = [channel];
 const document = getAsyncApiDocument([channel], {});
@@ -42,6 +46,10 @@ const app = new Elysia()
     .get("/asyncapi", () => getAsyncApiUI(document, "response"))
     .get("/asyncapi.json", document)
     .listen(3000);
+
+setInterval(() => {
+    channel.publish("some:1", "response", { data: ["test", 1] });
+}, 1000);
 
 console.log("Server running at http://localhost:3000");
 ```
