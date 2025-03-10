@@ -12,6 +12,7 @@
       },
       "peerDependencies": {
         "elysia": "^1.2.0",
+        "ws-asyncapi": "^0.0.8",
       },
     },
   },
