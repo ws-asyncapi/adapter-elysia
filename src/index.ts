@@ -59,6 +59,17 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 					// @ts-expect-error
 					data: ws.data["asyncapi-data"],
 				}),
+			close: (ws) =>
+				channel["~"].onClose?.({
+					ws: new WebSocketElysia(ws),
+					request: {
+						query: ws.data.query,
+						headers: ws.data.headers,
+						params: ws.data.params,
+					},
+					// @ts-expect-error
+					data: ws.data["asyncapi-data"],
+				}),
 			message: async (ws, message) => {
 				// @ts-ignore https://github.com/ws-asyncapi/adapter-elysia/actions/runs/13753755789/job/38457996320 works fine on ci but fails locally
 				const [type, data] = message;
