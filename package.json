@@ -1,6 +1,6 @@
 {
 	"name": "@ws-asyncapi/adapter-elysia",
-	"version": "0.0.5",
+	"version": "0.0.6",
 	"description": "Elysia adapter for WebSocket AsyncAPI integration",
 	"license": "MIT",
 	"type": "module",
@@ -8,13 +8,15 @@
 		"@biomejs/biome": "^1.9.4",
 		"@sinclair/typebox": "^0.34.28",
 		"@types/bun": "latest",
-		"pkgroll": "^2.11.2"
+		"pkgroll": "^2.11.2",
+		"ws-asyncapi": "^0.0.4"
 	},
 	"scripts": {
 		"prepublishOnly": "bunx pkgroll"
 	},
 	"peerDependencies": {
-		"elysia": "^1.2.0"
+		"elysia": "^1.2.0",
+		"ws-asyncapi": "^0.0.4"
 	},
 	"exports": {
 		".": {
@@ -23,8 +25,5 @@
 			"require": "./dist/index.cjs"
 		}
 	},
-	"files": ["dist"],
-	"dependencies": {
-		"ws-asyncapi": "^0.0.3"
-	}
+	"files": ["dist"]
 }

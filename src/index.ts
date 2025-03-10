@@ -15,6 +15,7 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 				channel["~"].globalPublish = (
 					topic: string,
 					type: string,
+					// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 					data: any,
 				) => {
 					server.publish(topic, JSON.stringify([type, data]));

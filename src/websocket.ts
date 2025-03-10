@@ -29,4 +29,17 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 		if (typeof topic === "string") return this.ws.isSubscribed(topic);
 		return false;
 	}
+
+	publish<T extends keyof WebsocketData["server"]>(
+		topic: Topics,
+		type: T,
+		data: WebsocketData["server"][T],
+	): void {
+		if (typeof topic === "string")
+			this.ws.publish(topic, JSON.stringify([type, data]));
+	}
+
+	close(code?: number, reason?: string): void {
+		this.ws.close(code, reason);
+	}
 }
