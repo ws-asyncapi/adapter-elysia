@@ -9,9 +9,11 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 
 	send<T extends keyof WebsocketData["server"]>(
 		type: T,
-		data: WebsocketData["server"][T],
+		...data: WebsocketData["server"][T] extends never
+			? []
+			: [WebsocketData["server"][T]]
 	): void {
-		this.ws.sendText(JSON.stringify([type, data]));
+		this.ws.sendText(JSON.stringify([type, ...data]));
 	}
 
 	subscribe(topic: Topics): void {
@@ -33,10 +35,12 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 	publish<T extends keyof WebsocketData["server"]>(
 		topic: Topics,
 		type: T,
-		data: WebsocketData["server"][T],
+		...data: WebsocketData["server"][T] extends never
+			? []
+			: [WebsocketData["server"][T]]
 	): void {
 		if (typeof topic === "string")
-			this.ws.publish(topic, JSON.stringify([type, data]));
+			this.ws.publish(topic, JSON.stringify([type, ...data]));
 	}
 
 	close(code?: number, reason?: string): void {
