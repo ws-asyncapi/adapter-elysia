@@ -150,6 +150,41 @@ client.onRequest("confirm", ({ action }) => ({ ok: window.confirm(action) }));
 `ws.request()` rejects with a typed `RpcError` if the client throws, times out (`{ timeout }`),
 or disconnects. It's the mirror of the client's `request()`.
 
+### Streaming (`.stream`)
+
+Beyond one-shot RPCs, a channel can declare a **stream**: the handler is an async
+generator, and the client consumes a typed sequence with `for await`. Stopping the
+loop cancels the stream server-side (the handler's `signal` aborts and its
+`try/finally` runs):
+
+```ts
+// contract
+.stream("prices", z.object({ symbol: z.string() }), z.object({ px: z.number() }),
+  async function* ({ message, signal }) {
+    const sub = market.subscribe(message.symbol);
+    try {
+      for await (const tick of sub) {
+        if (signal.aborted) break;
+        yield { px: tick.price };
+      }
+    } finally {
+      sub.close(); // runs on client cancel / disconnect
+    }
+  })
+```
+
+```ts
+// client — typed, inferred (or generated)
+for await (const { px } of client.stream("prices", { symbol: "ACME" })) {
+  render(px);
+  if (done) break; // cancels the stream server-side
+}
+```
+
+A server-side throw surfaces as a typed `RpcError` thrown into the `for await`.
+Streams don't survive a reconnect (the server cancels them on disconnect), so
+re-open after `onRecover`.
+
 ### Broadcasting & addressing
 
 Beyond room `publish`, the server can address individual sockets and exclude the sender —

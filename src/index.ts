@@ -15,6 +15,7 @@ import {
 	openConnection,
 	OutboundRpc,
 	publishEvent,
+	StreamRegistry,
 } from "ws-asyncapi";
 import { WebSocketElysia } from "./websocket.ts";
 
@@ -168,14 +169,16 @@ export function wsAsyncAPIAdapter(
 					params: ws.data.params,
 				};
 				registry.set(ws.id, ws);
-				// one OutboundRpc per connection (persists across messages)
+				// one OutboundRpc + StreamRegistry per connection (persist across messages)
 				const outbound = new OutboundRpc();
+				const streams = new StreamRegistry();
 				const conn: Connection = {
 					ws: new WebSocketElysia<any, any>(ws, codec, backplane, outbound),
 					request,
 					// @ts-expect-error initial data from beforeUpgrade
 					data: ws.data["asyncapi-data"] || {},
 					outbound,
+					streams,
 				};
 				await openConnection(channel, conn);
 				// stash mutable per-connection state for message/close handlers
@@ -185,6 +188,7 @@ export function wsAsyncAPIAdapter(
 					data: conn.data,
 					sessionId: conn.sessionId,
 					outbound,
+					streams,
 				};
 			},
 			close: async (ws) => {
@@ -202,6 +206,7 @@ export function wsAsyncAPIAdapter(
 					data: state.data,
 					sessionId: state.sessionId,
 					outbound: state.outbound,
+					streams: state.streams,
 				});
 				registry.delete(ws.id);
 			},
@@ -248,6 +253,7 @@ export function wsAsyncAPIAdapter(
 					data: state.data,
 					sessionId: state.sessionId,
 					outbound: state.outbound,
+					streams: state.streams,
 				};
 				await dispatchFrame(channel, backplane, conn, frame);
 				// persist mutations (recovery session id, derived data)
