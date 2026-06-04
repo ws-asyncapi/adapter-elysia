@@ -1,35 +1,73 @@
-import { Elysia, t } from "elysia";
-import type { AnyChannel } from "ws-asyncapi";
+import { Value } from "@sinclair/typebox/value";
+import { Elysia } from "elysia";
+import {
+	type AnyChannel,
+	type AnyFrame,
+	type Backplane,
+	type Codec,
+	type ErrorCode,
+	Frame,
+	jsonCodec,
+	LocalBackplane,
+	RpcError,
+} from "ws-asyncapi";
 import { WebSocketElysia } from "./websocket.ts";
 
-// TODO: fix this code... so many ts-ignores
+export interface WsAsyncAPIAdapterOptions {
+	/** wire codec (default: JSON). Must match the client codec. */
+	codec?: Codec;
+	/**
+	 * Horizontal-scaling backplane (default: in-process {@link LocalBackplane}).
+	 * Swap in a Redis backplane to fan out across nodes.
+	 */
+	backplane?: Backplane;
+}
 
-export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
+export function wsAsyncAPIAdapter(
+	channels: AnyChannel[],
+	options: WsAsyncAPIAdapterOptions = {},
+) {
+	const codec = options.codec ?? jsonCodec;
+	const backplane = options.backplane ?? new LocalBackplane();
+
 	const app = new Elysia({
 		name: "ws-asyncapi-adapter",
 	});
 
 	app.onStart(({ server }) => {
-		if (server) {
-			for (const channel of channels) {
-				channel["~"].globalPublish = (
-					topic: string,
-					type: string,
-					// biome-ignore lint/suspicious/noExplicitAny: <explanation>
-					data: any,
-				) => {
-					server.publish(topic, JSON.stringify([type, data]));
-				};
-			}
+		if (!server) return;
+
+		// Deliver every backplane message (local or cross-node) to this node's
+		// subscribers. Origin is already filtered by cross-node backplanes.
+		backplane.onMessage((message) => {
+			// biome-ignore lint/suspicious/noExplicitAny: publish accepts string | BufferSource
+			server.publish(message.topic, message.payload as any);
+		});
+
+		for (const channel of channels) {
+			channel["~"].globalPublish = (
+				topic: string,
+				type: string,
+				// biome-ignore lint/suspicious/noExplicitAny: <explanation>
+				data: any,
+			) => {
+				void backplane.publish(
+					topic,
+					codec.encode([Frame.Event, type, data]),
+				);
+			};
 		}
 	});
 
+	app.onStop(() => backplane.close());
+
 	for (const channel of channels) {
 		app.ws(channel.address, {
-			body: t.Tuple([t.String(), t.Any()]),
-			// @ts-ignore
+			// No body schema: we decode with the codec ourselves so binary
+			// codecs (msgpack) work. Elysia still pre-parses string frames.
+			// @ts-ignore query schema is dynamic
 			query: channel["~"].query,
-			// @ts-ignore
+			// @ts-ignore headers schema is dynamic
 			headers: channel["~"].headers,
 			beforeHandle: async (ws) => {
 				const result = await channel["~"].beforeUpgrade?.({
@@ -42,44 +80,40 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 					if (result instanceof Response) return result;
 
 					Object.assign(ws, {
-						// TODO: fix this code...
-						// @ts-expect-error
-						"asyncapi-data": Object.assign(ws["asyncapi-data"] || {}, result),
+						"asyncapi-data": Object.assign(
+							// @ts-expect-error attach derived data for handlers
+							ws["asyncapi-data"] || {},
+							result,
+						),
 					});
 				}
 			},
-			open: (ws) =>
-				channel["~"].onOpen?.({
-					ws: new WebSocketElysia(ws),
-					request: {
-						query: ws.data.query,
-						headers: ws.data.headers,
-						params: ws.data.params,
-					},
-					// @ts-expect-error
-					data: ws.data["asyncapi-data"],
-				}),
-			close: (ws) =>
-				channel["~"].onClose?.({
-					ws: new WebSocketElysia(ws),
-					request: {
-						query: ws.data.query,
-						headers: ws.data.headers,
-						params: ws.data.params,
-					},
-					// @ts-expect-error
-					data: ws.data["asyncapi-data"],
-				}),
-			message: async (ws, message) => {
-				// @ts-ignore https://github.com/ws-asyncapi/adapter-elysia/actions/runs/13753755789/job/38457996320 works fine on ci but fails locally
-				const [type, data] = message;
+			open: async (ws) => {
+				const request = {
+					query: ws.data.query,
+					headers: ws.data.headers,
+					params: ws.data.params,
+				};
+				// run .derive/.resolve in order, merging into connection data
+				// @ts-expect-error derived data bag
+				let data = ws.data["asyncapi-data"] || {};
+				for (const derive of channel["~"].derives) {
+					const result = await derive({ request, data });
+					if (result && typeof result === "object")
+						data = Object.assign(data, result);
+				}
+				// @ts-expect-error persist for message handlers
+				ws.data["asyncapi-data"] = data;
 
-				const result = channel["~"].client.get(type);
-				if (!result) return console.warn(`No handler found for ${type}`);
-
-				await result.handler({
-					ws: new WebSocketElysia(ws),
-					message: data,
+				await channel["~"].onOpen?.({
+					ws: new WebSocketElysia<any, any>(ws, codec, backplane),
+					request,
+					data,
+				});
+			},
+			close: async (ws) => {
+				await channel["~"].onClose?.({
+					ws: new WebSocketElysia<any, any>(ws, codec, backplane),
 					request: {
 						query: ws.data.query,
 						headers: ws.data.headers,
@@ -88,6 +122,181 @@ export function wsAsyncAPIAdapter(channels: AnyChannel[]) {
 					// @ts-expect-error
 					data: ws.data["asyncapi-data"],
 				});
+				// drop this socket from all rooms it was tracked in
+				void backplane.removeSocket(ws.id);
+			},
+			message: async (ws, raw) => {
+				let frame: AnyFrame;
+				if (raw instanceof Uint8Array || raw instanceof ArrayBuffer) {
+					// binary codec (e.g. msgpack)
+					try {
+						frame = codec.decode(raw);
+					} catch {
+						return;
+					}
+				} else if (typeof raw === "string") {
+					try {
+						frame = codec.decode(raw);
+					} catch {
+						return;
+					}
+				} else if (Array.isArray(raw)) {
+					// Elysia already JSON-parsed a string frame
+					frame = raw as AnyFrame;
+				} else {
+					return;
+				}
+				if (!Array.isArray(frame)) return;
+
+				const wsi = new WebSocketElysia<any, any>(ws, codec, backplane);
+				const request = {
+					query: ws.data.query,
+					headers: ws.data.headers,
+					params: ws.data.params,
+				};
+				// @ts-expect-error derived data attached on open
+				const data = ws.data["asyncapi-data"] ?? {};
+
+				// run per-message middleware; merges returns into a per-message
+				// context copy and throws to reject the message
+				const applyMiddleware = async (
+					type: string,
+					message: unknown,
+				) => {
+					if (channel["~"].middlewares.length === 0) return data;
+					const ctxData = { ...data };
+					for (const mw of channel["~"].middlewares) {
+						const result = await mw({
+							ws: wsi,
+							type,
+							message,
+							request,
+							data: ctxData,
+						});
+						if (result && typeof result === "object")
+							Object.assign(ctxData, result);
+					}
+					return ctxData;
+				};
+
+				switch (frame[0]) {
+					case Frame.Ping: {
+						wsi.sendFrame([Frame.Pong, frame[1]]);
+						return;
+					}
+					case Frame.Pong:
+						return;
+					case Frame.Hello: {
+						// Minimal handshake: confirm/assign a session id. Real
+						// connection-state-recovery (replay) arrives with the
+						// Redis Streams backplane.
+						const sid = frame[1] ?? crypto.randomUUID();
+						wsi.sendFrame([Frame.Welcome, sid, 0, 0]);
+						return;
+					}
+					case Frame.Command: {
+						const [, name, payload] = frame;
+						const entry = channel["~"].client.get(name);
+						if (!entry)
+							return console.warn(`No handler found for ${name}`);
+
+						if (
+							entry.validation &&
+							!Value.Check(entry.validation, payload)
+						) {
+							return console.warn(
+								`Invalid payload for command "${name}"`,
+							);
+						}
+
+						try {
+							const ctxData = await applyMiddleware(name, payload);
+							await entry.handler({
+								ws: wsi,
+								message: payload,
+								request,
+								data: ctxData,
+							});
+						} catch (error) {
+							if (channel["~"].onError)
+								channel["~"].onError({
+									ws: wsi,
+									error,
+									type: name,
+									data,
+								});
+							else
+								console.error(
+									`Error in command "${name}":`,
+									error,
+								);
+						}
+						return;
+					}
+					case Frame.Request: {
+						const [, name, corrId, payload] = frame;
+						const entry = channel["~"].rpc.get(name);
+						if (!entry) {
+							wsi.sendFrame([
+								Frame.Error,
+								corrId,
+								"NOT_FOUND",
+								`No RPC handler for "${name}"`,
+							]);
+							return;
+						}
+
+						if (!Value.Check(entry.input, payload)) {
+							wsi.sendFrame([
+								Frame.Error,
+								corrId,
+								"VALIDATION",
+								`Invalid input for RPC "${name}"`,
+								[...Value.Errors(entry.input, payload)]
+									.slice(0, 5)
+									.map((e) => ({
+										path: e.path,
+										message: e.message,
+									})),
+							]);
+							return;
+						}
+
+						try {
+							const ctxData = await applyMiddleware(name, payload);
+							const result = await entry.handler({
+								ws: wsi,
+								message: payload,
+								request,
+								data: ctxData,
+							});
+							wsi.sendFrame([Frame.Reply, corrId, result]);
+						} catch (error) {
+							const code: ErrorCode =
+								error instanceof RpcError
+									? error.code
+									: "INTERNAL";
+							const message =
+								error instanceof Error
+									? error.message
+									: String(error);
+							const errData =
+								error instanceof RpcError
+									? error.data
+									: undefined;
+							wsi.sendFrame([
+								Frame.Error,
+								corrId,
+								code,
+								message,
+								errData,
+							]);
+						}
+						return;
+					}
+					default:
+						return;
+				}
 			},
 		});
 	}
