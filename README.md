@@ -168,7 +168,25 @@ const sockets = await chat.fetchSockets("room:1"); // [{ id, rooms }, …]
 ```
 
 `ws.id` (in handlers) is the socket's id; `client.request("...")` style RPCs are a common way
-to hand a client its own id. (`socketsJoin` / `socketsLeave` / `disconnectSockets` are planned.)
+to hand a client its own id.
+
+### Server management & cross-node messaging
+
+These operate on sockets cluster-wide (every node applies them to its local sockets via the
+backplane) — no node enumerates remote sockets:
+
+```ts
+chat.disconnectSockets("room:1");      // kick everyone in a room (or all, with no arg)
+chat.socketsJoin("room:vip", "room:1"); // sockets in room:1 also join room:vip
+chat.socketsLeave("room:vip");          // all sockets leave room:vip
+
+// server↔server (not to clients): coordinate across nodes
+chat.onServerEvent("cache:flush", (key) => localCache.delete(key));
+chat.serverSideEmit("cache:flush", "user:42"); // runs on every OTHER node
+```
+
+> Note: with Bun/Elysia, `server.stop()` can hang after a socket was closed server-side
+> (`disconnectSockets`) — a Bun quirk; the server itself keeps working.
 
 ### Connection-state-recovery
 
@@ -247,7 +265,7 @@ Presence / fetch-sockets, cluster-wide:
 ## API
 
 - `wsAsyncAPIAdapter(channels, options?)` — Elysia plugin that registers a WS route per channel.
-- Channel builder: `query` · `headers` · `serverMessage` (events) · `clientMessage` (commands) · `rpc` (client→server acks, optional typed `errors`) · `serverRpc` (server→client acks) · `derive` / `resolve` (typed context) · `beforeMessage` (middleware) · `onError` · `onOpen` / `onClose` · `beforeUpgrade` · `publish` · `toSocket` (target one socket) · `fetchSockets` (presence) · `$typeChannels`.
+- Channel builder: `query` · `headers` · `serverMessage` (events) · `clientMessage` (commands) · `rpc` (client→server acks, optional typed `errors`) · `serverRpc` (server→client acks) · `derive` / `resolve` (typed context) · `beforeMessage` (middleware) · `onError` · `onOpen` / `onClose` · `beforeUpgrade` · `publish` · `toSocket` (target one socket) · `fetchSockets` (presence) · `disconnectSockets` / `socketsJoin` / `socketsLeave` (cluster-wide) · `serverSideEmit` / `onServerEvent` (server↔server) · `$typeChannels`.
 - In handlers, `ws`: `send` · `publish` · `broadcast` (exclude sender) · `request` (server→client RPC) · `subscribe` / `unsubscribe` / `isSubscribed` · `roomMembers` (presence) · `id` · `close`.
 - On the client: `request` (throws) · `safeRequest` (typed `{ data, error }`) · `call` (fire-and-forget) · `onEvent` · `onRequest` (answer server→client RPC) · `onOpen` / `onClose` / `onError` · `onRecover` · `sessionId` · `recovered` · `close`.
 

@@ -150,6 +150,9 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 	}
 
 	close(code?: number, reason?: string): void {
-		this.ws.close(code, reason);
+		// close the raw Bun socket directly — closing via a stale ElysiaWS
+		// wrapper (e.g. from server-side disconnectSockets) can wedge shutdown.
+		const raw = this.ws.raw ?? this.ws;
+		raw.close(code, reason);
 	}
 }

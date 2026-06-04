@@ -2,13 +2,16 @@ import { Elysia } from "elysia";
 import {
 	type AnyChannel,
 	type AnyFrame,
+	applyCommand,
 	type Backplane,
 	type Codec,
 	closeConnection,
+	COMMAND_TOPIC,
 	type Connection,
 	dispatchFrame,
 	jsonCodec,
 	LocalBackplane,
+	type NodeCommand,
 	openConnection,
 	OutboundRpc,
 	publishEvent,
@@ -37,6 +40,19 @@ export function wsAsyncAPIAdapter(
 	const registry = new Map<string, any>();
 	const rawOf = (ws: { raw?: { send: (d: unknown) => void } }) =>
 		ws.raw ?? (ws as { send: (d: unknown) => void });
+	const channelsByName = new Map(channels.map((c) => [c.name, c]));
+
+	const decodeCommand = (payload: string | Uint8Array): NodeCommand | null => {
+		try {
+			return JSON.parse(
+				typeof payload === "string"
+					? payload
+					: new TextDecoder().decode(payload),
+			) as NodeCommand;
+		} catch {
+			return null;
+		}
+	};
 
 	const app = new Elysia({
 		name: "ws-asyncapi-adapter",
@@ -48,6 +64,16 @@ export function wsAsyncAPIAdapter(
 		// Deliver every backplane message (local or cross-node) to this node's
 		// subscribers. Origin is already filtered by cross-node backplanes.
 		backplane.onMessage((message) => {
+			if (message.topic === COMMAND_TOPIC) {
+				const cmd = decodeCommand(message.payload);
+				if (cmd)
+					applyCommand(
+						channelsByName.get(cmd.channel),
+						cmd,
+						message.origin === backplane.nodeId,
+					);
+				return;
+			}
 			if (message.except && message.except.length > 0) {
 				// per-socket delivery so we can skip the excepted ids (Elysia's
 				// server.publish can't exclude)
@@ -86,6 +112,9 @@ export function wsAsyncAPIAdapter(
 						),
 					})),
 				);
+			};
+			channel["~"].sendCommand = (cmd) => {
+				void backplane.publish(COMMAND_TOPIC, JSON.stringify(cmd));
 			};
 		}
 	});
