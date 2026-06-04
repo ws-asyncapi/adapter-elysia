@@ -26,6 +26,12 @@ export interface WsAsyncAPIAdapterOptions {
 	 * Swap in a Redis backplane to fan out across nodes.
 	 */
 	backplane?: Backplane;
+	/**
+	 * Max inbound message size in bytes; larger frames are rejected with close
+	 * 1009 before they are decoded (DoS / decode-bomb guard). Default: 1 MiB.
+	 * Raise it if you send large in-band payloads.
+	 */
+	maxPayload?: number;
 }
 
 export function wsAsyncAPIAdapter(
@@ -34,6 +40,15 @@ export function wsAsyncAPIAdapter(
 ) {
 	const codec = options.codec ?? jsonCodec;
 	const backplane = options.backplane ?? new LocalBackplane();
+	const maxPayload = options.maxPayload ?? 1_048_576; // 1 MiB
+
+	/** Byte size of a raw inbound frame (string or binary), for the payload cap. */
+	const frameSize = (raw: unknown): number => {
+		if (typeof raw === "string") return Buffer.byteLength(raw);
+		if (raw instanceof ArrayBuffer) return raw.byteLength;
+		if (ArrayBuffer.isView(raw)) return raw.byteLength;
+		return 0; // already-parsed array: Elysia decoded it, treat as in-budget
+	};
 
 	// local socket registry (for exclusion delivery + presence listing)
 	// biome-ignore lint/suspicious/noExplicitAny: ElysiaWS is dynamic
@@ -194,6 +209,13 @@ export function wsAsyncAPIAdapter(
 				// @ts-expect-error per-connection state bag
 				const state = ws.data["asyncapi-conn"];
 				if (!state) return;
+
+				if (frameSize(raw) > maxPayload) {
+					try {
+						ws.close(1009, "message too large");
+					} catch {}
+					return;
+				}
 
 				let frame: AnyFrame;
 				if (raw instanceof Uint8Array || raw instanceof ArrayBuffer) {
