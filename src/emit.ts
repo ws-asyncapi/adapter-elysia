@@ -14,6 +14,7 @@ export async function publishEvent(
 	topic: string,
 	type: string,
 	data: unknown,
+	except?: string[],
 ): Promise<void> {
 	const offset = backplane.assignOffset
 		? await backplane.assignOffset()
@@ -22,5 +23,5 @@ export async function publishEvent(
 		offset !== undefined
 			? [Frame.Event, type, data, offset]
 			: [Frame.Event, type, data];
-	await backplane.publish(topic, codec.encode(frame), offset);
+	await backplane.publish(topic, codec.encode(frame), offset, except);
 }

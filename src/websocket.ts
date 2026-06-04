@@ -117,6 +117,32 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 		}
 	}
 
+	broadcast<T extends keyof WebsocketData["server"]>(
+		topic: Topics,
+		type: T,
+		...data: WebsocketData["server"][T] extends never
+			? []
+			: [WebsocketData["server"][T]]
+	): void {
+		if (typeof topic !== "string") return;
+		if (this.backplane) {
+			// exclude this socket from delivery cluster-wide
+			void publishEvent(
+				this.backplane,
+				this.codec,
+				topic,
+				type as string,
+				data[0],
+				[this.id],
+			);
+		} else {
+			const payload = this.codec.encode([Frame.Event, type as string, data[0]]);
+			// Bun's per-socket publish already excludes the sender
+			// biome-ignore lint/suspicious/noExplicitAny: publish accepts string | BufferSource
+			this.ws.publish(topic, payload as any);
+		}
+	}
+
 	async roomMembers(topic: Topics): Promise<string[]> {
 		if (typeof topic === "string" && this.backplane)
 			return this.backplane.roomMembers(topic);

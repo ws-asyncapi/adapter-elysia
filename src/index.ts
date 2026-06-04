@@ -32,6 +32,12 @@ export function wsAsyncAPIAdapter(
 	const codec = options.codec ?? jsonCodec;
 	const backplane = options.backplane ?? new LocalBackplane();
 
+	// local socket registry (for exclusion delivery + presence listing)
+	// biome-ignore lint/suspicious/noExplicitAny: ElysiaWS is dynamic
+	const registry = new Map<string, any>();
+	const rawOf = (ws: { raw?: { send: (d: unknown) => void } }) =>
+		ws.raw ?? (ws as { send: (d: unknown) => void });
+
 	const app = new Elysia({
 		name: "ws-asyncapi-adapter",
 	});
@@ -42,6 +48,19 @@ export function wsAsyncAPIAdapter(
 		// Deliver every backplane message (local or cross-node) to this node's
 		// subscribers. Origin is already filtered by cross-node backplanes.
 		backplane.onMessage((message) => {
+			if (message.except && message.except.length > 0) {
+				// per-socket delivery so we can skip the excepted ids (Elysia's
+				// server.publish can't exclude)
+				const skip = new Set(message.except);
+				void backplane.roomMembers(message.topic).then((members) => {
+					for (const id of members) {
+						if (skip.has(id)) continue;
+						const ws = registry.get(id);
+						if (ws) rawOf(ws).send(message.payload);
+					}
+				});
+				return;
+			}
 			// biome-ignore lint/suspicious/noExplicitAny: publish accepts string | BufferSource
 			server.publish(message.topic, message.payload as any);
 		});
@@ -54,6 +73,19 @@ export function wsAsyncAPIAdapter(
 				data: any,
 			) => {
 				void publishEvent(backplane, codec, topic, type, data);
+			};
+			channel["~"].fetchSockets = async (room) => {
+				const ids = room
+					? await backplane.roomMembers(room)
+					: [...registry.keys()];
+				return Promise.all(
+					ids.map(async (id) => ({
+						id,
+						rooms: (await backplane.rooms(id)).filter(
+							(r) => !r.startsWith("#sid:"),
+						),
+					})),
+				);
 			};
 		}
 	});
@@ -91,6 +123,7 @@ export function wsAsyncAPIAdapter(
 					headers: ws.data.headers,
 					params: ws.data.params,
 				};
+				registry.set(ws.id, ws);
 				// one OutboundRpc per connection (persists across messages)
 				const outbound = new OutboundRpc();
 				const conn: Connection = {
@@ -126,6 +159,7 @@ export function wsAsyncAPIAdapter(
 					sessionId: state.sessionId,
 					outbound: state.outbound,
 				});
+				registry.delete(ws.id);
 			},
 			message: async (ws, raw) => {
 				// @ts-expect-error per-connection state bag
