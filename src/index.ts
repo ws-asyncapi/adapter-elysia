@@ -11,8 +11,8 @@ import {
 	LocalBackplane,
 	openConnection,
 	OutboundRpc,
+	publishEvent,
 } from "ws-asyncapi";
-import { publishEvent } from "./emit.ts";
 import { WebSocketElysia } from "./websocket.ts";
 
 export interface WsAsyncAPIAdapterOptions {

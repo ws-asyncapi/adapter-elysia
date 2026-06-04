@@ -5,11 +5,11 @@ import {
 	type Codec,
 	Frame,
 	jsonCodec,
+	publishEvent,
 	type OutboundRpc,
 	type WebSocketImplementation,
 	type WebsocketDataType,
 } from "ws-asyncapi";
-import { publishEvent } from "./emit.ts";
 
 export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 	implements WebSocketImplementation<WebsocketData, Topics>
