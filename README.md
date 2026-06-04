@@ -88,6 +88,26 @@ const { items } = await client.request("history", { limit: 50 }); // typed Promi
 
 The client auto-reconnects with backoff, sends heartbeats, buffers messages while offline, and surfaces RPC failures as typed `RpcError` (`VALIDATION` / `NOT_FOUND` / `INTERNAL` / `TIMEOUT` / your own codes).
 
+### Codegen-free client (`createClient`)
+
+If your client shares a TypeScript project (or a monorepo) with the server, skip the CLI
+entirely and infer the typed client straight from the channel's type:
+
+```ts
+import type { chat } from "./server"; // the Channel value's type
+import { createClient } from "@ws-asyncapi/client";
+
+const client = createClient<typeof chat>("ws://localhost:3000", "/chat/1");
+await client.opened;
+
+client.onEvent("message", (m) => console.log(m.from, m.text)); // typed, inferred
+client.call("typing", { on: true });                            // typed, inferred
+const { items } = await client.request("history", { limit: 50 }); // typed, inferred
+```
+
+Same runtime, same types — no generated file, no build step. Use the CLI generator instead
+when the client lives in a separate repo or a non-TypeScript codebase.
+
 ### Typed errors (`safeRequest`)
 
 Errors you declare in `.rpc(..., errors)` flow through the contract into the generated client. `safeRequest` returns a discriminated `{ data, error }` result — narrow on `error.code` to get that error's typed `data`:
