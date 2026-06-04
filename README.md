@@ -14,12 +14,15 @@ npm install @ws-asyncapi/adapter-elysia ws-asyncapi elysia @sinclair/typebox
 
 ```typescript
 import { Elysia } from "elysia";
+import { z } from "zod";
 import { Type } from "@sinclair/typebox";
-import { Channel, getAsyncApiDocument, getAsyncApiUI } from "ws-asyncapi";
+import { Channel, getAsyncApiDocument, getAsyncApiUI, RpcError } from "ws-asyncapi";
 import { wsAsyncAPIAdapter } from "@ws-asyncapi/adapter-elysia";
 
 const chat = new Channel("/chat/:room", "chat")
   .$typeChannels<`room:${string}`>()
+  // query/headers use TypeBox (Elysia's connection binding); message payloads
+  // below use Zod — mix validators freely.
   .query(Type.Object({ token: Type.String() }))
 
   // connection-scoped context (auth, db, decoded user) — typed everywhere
@@ -33,27 +36,26 @@ const chat = new Channel("/chat/:room", "chat")
   })
 
   // server -> client event (fire-and-forget)
-  .serverMessage("message", Type.Object({ from: Type.String(), text: Type.String() }))
+  .serverMessage("message", z.object({ from: z.string(), text: z.string() }))
 
   // client -> server command (fire-and-forget)
   .clientMessage(
     "typing",
     ({ ws }) => ws.publish("room:1", "message", { from: "sys", text: "..." }),
-    Type.Object({ on: Type.Boolean() }),
+    z.object({ on: z.boolean() }),
   )
 
   // client -> server request/response (acknowledged RPC) — typed input AND output
   .rpc(
     "history",
-    Type.Object({ limit: Type.Number() }),
-    Type.Object({ items: Type.Array(Type.String()) }),
+    z.object({ limit: z.number().int().max(100).default(20) }),
+    z.object({ items: z.array(z.string()) }),
     async ({ message, data }) => {
-      if (message.limit > 100)
-        throw new RpcError("TOO_MANY", "limit too high", { max: 100 });
+      // message.limit is the PARSED value (Zod default/coercion applied)
       return { items: await loadHistory(message.limit) };
     },
     // optional: declare typed errors → discriminated typed errors on the client
-    { TOO_MANY: Type.Object({ max: Type.Number() }) },
+    { TOO_MANY: z.object({ max: z.number() }) },
   )
 
   .onOpen(({ ws }) => ws.subscribe("room:1"));
@@ -117,28 +119,26 @@ Recovery is automatic and on by default for `LocalBackplane`. Direct `ws.send(..
 
 ## Schema libraries (Standard Schema)
 
-Schemas can be defined with **any [Standard Schema](https://standardschema.dev) validator**
-— Zod, Valibot, ArkType — or with TypeBox. Mix freely; the contract, validation, and the
-generated typed client work the same regardless.
+Message payloads can use **any [Standard Schema](https://standardschema.dev) validator** —
+**Zod, Valibot, ArkType** — or **TypeBox**, mixed freely within a channel. Validation, the
+AsyncAPI contract, and the generated typed client work the same regardless. Handlers receive
+the **parsed** value, so transforms / coercion / `.default()` are applied before your code
+runs, and the doc is emitted as JSON Schema (draft-07) so descriptions, formats, enums, and
+unions flow into the contract and the generated client types.
 
-```ts
-import { z } from "zod";
+- **Zod (≥4.2)** and **ArkType (≥2.1.28)** work out of the box (they implement JSON Schema
+  conversion natively).
+- **Valibot** validates out of the box, but emits JSON Schema from a separate package —
+  register it once at startup so the contract/codegen work:
 
-new Channel("/chat/:room", "chat")
-  .rpc(
-    "history",
-    z.object({ limit: z.number().int().max(100).default(20) }),
-    z.object({ items: z.array(z.string()) }),
-    async ({ message }) => ({ items: await loadHistory(message.limit) }),
-    { TOO_MANY: z.object({ max: z.number() }) },
-  );
-```
+  ```ts
+  import { toJsonSchema } from "@valibot/to-json-schema";
+  import { registerJsonSchemaConverter } from "ws-asyncapi";
 
-Handlers receive the **parsed** value, so transforms / coercion / `.default()` are applied
-before your code runs. The AsyncAPI doc is generated as JSON Schema (draft-07) via the
-validator's `StandardJSONSchemaV1` converter — so descriptions, formats, enums, and unions
-all flow into the contract and the generated client types. TypeBox is still supported and is
-what Elysia uses for `query` / `headers` binding.
+  registerJsonSchemaConverter("valibot", (schema) => toJsonSchema(schema as never));
+  ```
+
+- **TypeBox** is always supported, and is what Elysia uses for `query` / `headers` binding.
 
 ## Options
 
