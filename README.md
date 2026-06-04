@@ -227,10 +227,38 @@ unions flow into the contract and the generated client types.
 
 ```ts
 wsAsyncAPIAdapter(channels, {
-  codec,      // wire codec (default: JSON). Must match the client codec.
-  backplane,  // scaling backplane (default: in-process LocalBackplane)
+  codec,       // wire codec (default: JSON). Must match the client codec.
+  backplane,   // scaling backplane (default: in-process LocalBackplane)
+  maxPayload,  // max inbound message bytes (default: 1 MiB). Oversized frames
+               // are rejected with close 1009 before decoding (DoS guard).
 })
 ```
+
+### Reliability & versioning
+
+**Idempotent RPCs.** Delivery is at-least-once: a reply can be lost if the socket
+drops after the handler ran, and a retry would run the handler twice. Tag a call
+with a stable `idempotencyKey` and the server runs the handler once per key,
+replaying the cached result to duplicates (retransmits, retries after reconnect,
+or concurrent dupes) — so "charge once" stays once:
+
+```ts
+await client.request("charge", { amount: 50 }, { idempotencyKey: orderId });
+```
+
+**Contract version negotiation.** The client can send a `contractVersion`; if it
+doesn't match the server's contract, the server rejects the connection up front
+(`opened` rejects with a clear reason and the client stops reconnecting) instead
+of silently mis-parsing frames after a deploy:
+
+```ts
+import { contractHash } from "ws-asyncapi";
+createClient<typeof chat>(url, "/chat/1", { contractVersion: contractHash(chat) });
+```
+
+The contract hash is also emitted per channel in the AsyncAPI doc
+(`x-ws-asyncapi-contract-hash`). `client.opened` resolves once the handshake
+completes (so a version mismatch is observable there).
 
 ### Pluggable codec (binary)
 
