@@ -11,6 +11,7 @@ import {
 	LocalBackplane,
 	RpcError,
 } from "ws-asyncapi";
+import { publishEvent } from "./emit.ts";
 import { WebSocketElysia } from "./websocket.ts";
 
 export interface WsAsyncAPIAdapterOptions {
@@ -51,10 +52,7 @@ export function wsAsyncAPIAdapter(
 				// biome-ignore lint/suspicious/noExplicitAny: <explanation>
 				data: any,
 			) => {
-				void backplane.publish(
-					topic,
-					codec.encode([Frame.Event, type, data]),
-				);
+				void publishEvent(backplane, codec, topic, type, data);
 			};
 		}
 	});
@@ -122,6 +120,15 @@ export function wsAsyncAPIAdapter(
 					// @ts-expect-error
 					data: ws.data["asyncapi-data"],
 				});
+				// Persist recoverable state (rooms) before dropping the socket,
+				// so a quick reconnect can re-join + replay missed events.
+				// @ts-expect-error session id attached on Hello
+				const sid: string | undefined = ws.data["asyncapi-sid"];
+				if (sid && backplane.saveSession) {
+					const rooms = await backplane.rooms(ws.id);
+					if (rooms.length > 0)
+						void backplane.saveSession(sid, { rooms });
+				}
 				// drop this socket from all rooms it was tracked in
 				void backplane.removeSocket(ws.id);
 			},
@@ -187,11 +194,46 @@ export function wsAsyncAPIAdapter(
 					case Frame.Pong:
 						return;
 					case Frame.Hello: {
-						// Minimal handshake: confirm/assign a session id. Real
-						// connection-state-recovery (replay) arrives with the
-						// Redis Streams backplane.
-						const sid = frame[1] ?? crypto.randomUUID();
-						wsi.sendFrame([Frame.Welcome, sid, 0, 0]);
+						// Connection-state-recovery handshake. A returning client
+						// sends its session id + last-seen offset; if the session
+						// is still recoverable we re-join its rooms and replay the
+						// events it missed, then resume live.
+						const requestedSid = frame[1];
+						const clientOffset = frame[2] ?? 0;
+						const sid = requestedSid ?? crypto.randomUUID();
+						let recovered: 0 | 1 = 0;
+
+						if (requestedSid && backplane.loadSession) {
+							const session = await backplane.loadSession(requestedSid);
+							if (session) {
+								// re-join the rooms this session held
+								for (const room of session.rooms)
+									wsi.subscribe(room as never);
+								// replay missed events (already-encoded frames, in
+								// global publish order) before live resumes
+								if (backplane.replaySince) {
+									const missed = await backplane.replaySince(
+										clientOffset,
+										session.rooms,
+									);
+									for (const m of missed) wsi.sendRaw(m.payload);
+								}
+								await backplane.dropSession?.(requestedSid);
+								recovered = 1;
+							}
+						}
+
+						// remember the session id so close() can persist it
+						// @ts-expect-error attach session id to connection data
+						ws.data["asyncapi-sid"] = sid;
+
+						// On a clean (non-recovered) connect, hand the client the
+						// current offset as its starting cursor so a later blip
+						// replays only from here, not from the whole buffer.
+						const serverOffset = backplane.assignOffset
+							? await backplane.assignOffset()
+							: 0;
+						wsi.sendFrame([Frame.Welcome, sid, recovered, serverOffset]);
 						return;
 					}
 					case Frame.Command: {

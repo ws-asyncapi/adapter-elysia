@@ -8,6 +8,7 @@ import {
 	type WebSocketImplementation,
 	type WebsocketDataType,
 } from "ws-asyncapi";
+import { publishEvent } from "./emit.ts";
 
 export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 	implements WebSocketImplementation<WebsocketData, Topics>
@@ -25,7 +26,11 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 
 	/** Low-level: encode and send any wire frame. */
 	sendFrame(frame: AnyFrame): void {
-		const data = this.codec.encode(frame);
+		this.sendRaw(this.codec.encode(frame));
+	}
+
+	/** Low-level: send already-encoded bytes (used to replay buffered frames). */
+	sendRaw(data: string | Uint8Array): void {
 		// Use the raw Bun socket: Elysia's `send` JSON-serializes non-string
 		// payloads, which corrupts binary codecs (msgpack). Bun's raw `send`
 		// sends strings as text and Uint8Array as a binary frame.
@@ -71,12 +76,23 @@ export class WebSocketElysia<WebsocketData extends WebsocketDataType, Topics>
 			: [WebsocketData["server"][T]]
 	): void {
 		if (typeof topic !== "string") return;
-		const payload = this.codec.encode([Frame.Event, type as string, data[0]]);
 
 		if (this.backplane) {
-			// fan out across the cluster; the backplane delivers locally too
-			void this.backplane.publish(topic, payload);
+			// fan out across the cluster (the backplane delivers locally too)
+			// and stamp a recovery offset so disconnected clients can replay.
+			void publishEvent(
+				this.backplane,
+				this.codec,
+				topic,
+				type as string,
+				data[0],
+			);
 		} else {
+			const payload = this.codec.encode([
+				Frame.Event,
+				type as string,
+				data[0],
+			]);
 			// biome-ignore lint/suspicious/noExplicitAny: publish accepts string | BufferSource
 			this.ws.publish(topic, payload as any);
 		}
