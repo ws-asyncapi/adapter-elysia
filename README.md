@@ -6,6 +6,8 @@ Elysia adapter for **ws-asyncapi** — contract-first, end-to-end-typed WebSocke
 
 ```bash
 npm install @ws-asyncapi/adapter-elysia ws-asyncapi elysia @sinclair/typebox
+# schemas can use any Standard Schema validator instead of (or alongside) TypeBox:
+# npm install zod   ·   npm install valibot   ·   npm install arktype
 ```
 
 ## Usage
@@ -112,6 +114,31 @@ client.onRecover((recovered) => {
 ```
 
 Recovery is automatic and on by default for `LocalBackplane`. Direct `ws.send(...)` to a single socket is not replayed (only room broadcasts are); the recovery window (`sessionTTL`, default 2 min) and replay log size (`bufferSize`, default 10k events) are tunable on the backplane.
+
+## Schema libraries (Standard Schema)
+
+Schemas can be defined with **any [Standard Schema](https://standardschema.dev) validator**
+— Zod, Valibot, ArkType — or with TypeBox. Mix freely; the contract, validation, and the
+generated typed client work the same regardless.
+
+```ts
+import { z } from "zod";
+
+new Channel("/chat/:room", "chat")
+  .rpc(
+    "history",
+    z.object({ limit: z.number().int().max(100).default(20) }),
+    z.object({ items: z.array(z.string()) }),
+    async ({ message }) => ({ items: await loadHistory(message.limit) }),
+    { TOO_MANY: z.object({ max: z.number() }) },
+  );
+```
+
+Handlers receive the **parsed** value, so transforms / coercion / `.default()` are applied
+before your code runs. The AsyncAPI doc is generated as JSON Schema (draft-07) via the
+validator's `StandardJSONSchemaV1` converter — so descriptions, formats, enums, and unions
+all flow into the contract and the generated client types. TypeBox is still supported and is
+what Elysia uses for `query` / `headers` binding.
 
 ## Options
 

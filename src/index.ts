@@ -1,4 +1,3 @@
-import { Value } from "@sinclair/typebox/value";
 import { Elysia } from "elysia";
 import {
 	type AnyChannel,
@@ -10,6 +9,7 @@ import {
 	jsonCodec,
 	LocalBackplane,
 	RpcError,
+	validate,
 } from "ws-asyncapi";
 import { publishEvent } from "./emit.ts";
 import { WebSocketElysia } from "./websocket.ts";
@@ -242,20 +242,27 @@ export function wsAsyncAPIAdapter(
 						if (!entry)
 							return console.warn(`No handler found for ${name}`);
 
-						if (
-							entry.validation &&
-							!Value.Check(entry.validation, payload)
-						) {
-							return console.warn(
-								`Invalid payload for command "${name}"`,
+						let message = payload;
+						if (entry.validation) {
+							const result = await validate(
+								entry.validation,
+								payload,
 							);
+							if (!result.ok) {
+								return console.warn(
+									`Invalid payload for command "${name}"`,
+									result.issues,
+								);
+							}
+							// hand the parsed value (transforms/defaults applied)
+							message = result.value;
 						}
 
 						try {
-							const ctxData = await applyMiddleware(name, payload);
+							const ctxData = await applyMiddleware(name, message);
 							await entry.handler({
 								ws: wsi,
-								message: payload,
+								message,
 								request,
 								data: ctxData,
 							});
@@ -288,31 +295,28 @@ export function wsAsyncAPIAdapter(
 							return;
 						}
 
-						if (!Value.Check(entry.input, payload)) {
+						const inputResult = await validate(entry.input, payload);
+						if (!inputResult.ok) {
 							wsi.sendFrame([
 								Frame.Error,
 								corrId,
 								"VALIDATION",
 								`Invalid input for RPC "${name}"`,
-								[...Value.Errors(entry.input, payload)]
-									.slice(0, 5)
-									.map((e) => ({
-										path: e.path,
-										message: e.message,
-									})),
+								inputResult.issues.slice(0, 5),
 							]);
 							return;
 						}
+						const message = inputResult.value;
 
 						try {
-							const ctxData = await applyMiddleware(name, payload);
-							const result = await entry.handler({
+							const ctxData = await applyMiddleware(name, message);
+							const reply = await entry.handler({
 								ws: wsi,
-								message: payload,
+								message,
 								request,
 								data: ctxData,
 							});
-							wsi.sendFrame([Frame.Reply, corrId, result]);
+							wsi.sendFrame([Frame.Reply, corrId, reply]);
 						} catch (error) {
 							const code: ErrorCode =
 								error instanceof RpcError
