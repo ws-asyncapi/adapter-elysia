@@ -10,6 +10,7 @@ import {
 	jsonCodec,
 	LocalBackplane,
 	openConnection,
+	OutboundRpc,
 } from "ws-asyncapi";
 import { publishEvent } from "./emit.ts";
 import { WebSocketElysia } from "./websocket.ts";
@@ -90,11 +91,14 @@ export function wsAsyncAPIAdapter(
 					headers: ws.data.headers,
 					params: ws.data.params,
 				};
+				// one OutboundRpc per connection (persists across messages)
+				const outbound = new OutboundRpc();
 				const conn: Connection = {
-					ws: new WebSocketElysia<any, any>(ws, codec, backplane),
+					ws: new WebSocketElysia<any, any>(ws, codec, backplane, outbound),
 					request,
 					// @ts-expect-error initial data from beforeUpgrade
 					data: ws.data["asyncapi-data"] || {},
+					outbound,
 				};
 				await openConnection(channel, conn);
 				// stash mutable per-connection state for message/close handlers
@@ -103,6 +107,7 @@ export function wsAsyncAPIAdapter(
 					request,
 					data: conn.data,
 					sessionId: conn.sessionId,
+					outbound,
 				};
 			},
 			close: async (ws) => {
@@ -110,10 +115,16 @@ export function wsAsyncAPIAdapter(
 				const state = ws.data["asyncapi-conn"];
 				if (!state) return;
 				await closeConnection(channel, backplane, {
-					ws: new WebSocketElysia<any, any>(ws, codec, backplane),
+					ws: new WebSocketElysia<any, any>(
+						ws,
+						codec,
+						backplane,
+						state.outbound,
+					),
 					request: state.request,
 					data: state.data,
 					sessionId: state.sessionId,
+					outbound: state.outbound,
 				});
 			},
 			message: async (ws, raw) => {
@@ -142,10 +153,16 @@ export function wsAsyncAPIAdapter(
 				}
 
 				const conn: Connection = {
-					ws: new WebSocketElysia<any, any>(ws, codec, backplane),
+					ws: new WebSocketElysia<any, any>(
+						ws,
+						codec,
+						backplane,
+						state.outbound,
+					),
 					request: state.request,
 					data: state.data,
 					sessionId: state.sessionId,
+					outbound: state.outbound,
 				};
 				await dispatchFrame(channel, backplane, conn, frame);
 				// persist mutations (recovery session id, derived data)

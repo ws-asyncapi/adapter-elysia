@@ -125,6 +125,31 @@ if (res.error) {
 
 `request()` still throws (rejects with `RpcError`); `safeRequest()` is the non-throwing, fully-typed variant.
 
+### Server→client RPC (bidirectional acks)
+
+RPCs work in both directions. Declare a server→client RPC with `.serverRpc()`; the **server**
+calls it on a connection and awaits the client's typed reply, and the **client** answers it:
+
+```ts
+// contract
+new Channel("/chat/:room", "chat")
+  .serverRpc("confirm", z.object({ action: z.string() }), z.object({ ok: z.boolean() }))
+  .rpc("delete", z.object({ id: z.string() }), z.object({ done: z.boolean() }),
+    async ({ ws, message }) => {
+      // server asks the client and awaits — fully typed
+      const { ok } = await ws.request("confirm", { action: `delete ${message.id}` });
+      return { done: ok };
+    });
+```
+
+```ts
+// client answers (typed input/output, inferred or generated)
+client.onRequest("confirm", ({ action }) => ({ ok: window.confirm(action) }));
+```
+
+`ws.request()` rejects with a typed `RpcError` if the client throws, times out (`{ timeout }`),
+or disconnects. It's the mirror of the client's `request()`.
+
 ### Connection-state-recovery
 
 If the active backplane supports it (the default `LocalBackplane`, or `RedisBackplane` with `recovery` enabled), a client that briefly drops will, on reconnect, **re-join its rooms and replay the events it missed** — no gap, no manual refetch. The client tracks its offset automatically; you only react to whether recovery succeeded:
@@ -202,9 +227,9 @@ Presence / fetch-sockets, cluster-wide:
 ## API
 
 - `wsAsyncAPIAdapter(channels, options?)` — Elysia plugin that registers a WS route per channel.
-- Channel builder: `query` · `headers` · `serverMessage` (events) · `clientMessage` (commands) · `rpc` (acks, optional typed `errors`) · `derive` / `resolve` (typed context) · `beforeMessage` (middleware) · `onError` · `onOpen` / `onClose` · `beforeUpgrade` · `publish` · `$typeChannels`.
-- In handlers, `ws`: `send` · `publish` · `subscribe` / `unsubscribe` / `isSubscribed` · `roomMembers` (presence) · `close`.
-- On the client: `request` (throws) · `safeRequest` (typed `{ data, error }`) · `call` (fire-and-forget) · `onEvent` · `onOpen` / `onClose` / `onError` · `onRecover` · `sessionId` · `recovered` · `close`.
+- Channel builder: `query` · `headers` · `serverMessage` (events) · `clientMessage` (commands) · `rpc` (client→server acks, optional typed `errors`) · `serverRpc` (server→client acks) · `derive` / `resolve` (typed context) · `beforeMessage` (middleware) · `onError` · `onOpen` / `onClose` · `beforeUpgrade` · `publish` · `$typeChannels`.
+- In handlers, `ws`: `send` · `publish` · `request` (server→client RPC) · `subscribe` / `unsubscribe` / `isSubscribed` · `roomMembers` (presence) · `close`.
+- On the client: `request` (throws) · `safeRequest` (typed `{ data, error }`) · `call` (fire-and-forget) · `onEvent` · `onRequest` (answer server→client RPC) · `onOpen` / `onClose` / `onError` · `onRecover` · `sessionId` · `recovered` · `close`.
 
 ## License
 
