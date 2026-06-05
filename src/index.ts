@@ -134,6 +134,10 @@ export function wsAsyncAPIAdapter(
 			};
 			channel["~"].publishFrame = (topic, frame, except) =>
 				void backplane.publish(topic, codec.encode(frame), undefined, except);
+			if (channel["~"].history.size)
+				backplane.configureHistory?.(
+					Object.fromEntries(channel["~"].history),
+				);
 		}
 	});
 
