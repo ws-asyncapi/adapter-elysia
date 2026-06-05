@@ -132,6 +132,8 @@ export function wsAsyncAPIAdapter(
 			channel["~"].sendCommand = (cmd) => {
 				void backplane.publish(COMMAND_TOPIC, JSON.stringify(cmd));
 			};
+			channel["~"].publishFrame = (topic, frame, except) =>
+				void backplane.publish(topic, codec.encode(frame), undefined, except);
 		}
 	});
 
