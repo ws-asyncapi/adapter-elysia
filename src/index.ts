@@ -147,10 +147,10 @@ export function wsAsyncAPIAdapter(
 		app.ws(channel.address, {
 			// No body schema: we decode with the codec ourselves so binary
 			// codecs (msgpack) work. Elysia still pre-parses string frames.
-			// @ts-ignore query schema is dynamic
-			query: channel["~"].query,
-			// @ts-ignore headers schema is dynamic
-			headers: channel["~"].headers,
+			// Query/headers are not handed to Elysia for validation: their schemas
+			// are Standard Schema (not TypeBox), and they're typed via the contract
+			// + parsed into `request` (matching the node adapter, which also doesn't
+			// validate connection params at runtime).
 			beforeHandle: async (ws) => {
 				const result = await channel["~"].beforeUpgrade?.({
 					query: ws.query,

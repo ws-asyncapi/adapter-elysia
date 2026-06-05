@@ -5,8 +5,8 @@ Elysia adapter for **ws-asyncapi** — contract-first, end-to-end-typed WebSocke
 ## Installation
 
 ```bash
-npm install @ws-asyncapi/adapter-elysia ws-asyncapi elysia @sinclair/typebox
-# schemas can use any Standard Schema validator instead of (or alongside) TypeBox:
+npm install @ws-asyncapi/adapter-elysia ws-asyncapi elysia
+# schemas use any Standard Schema validator:
 # npm install zod   ·   npm install valibot   ·   npm install arktype
 ```
 
@@ -15,15 +15,13 @@ npm install @ws-asyncapi/adapter-elysia ws-asyncapi elysia @sinclair/typebox
 ```typescript
 import { Elysia } from "elysia";
 import { z } from "zod";
-import { Type } from "@sinclair/typebox";
 import { Channel, getAsyncApiDocument, getAsyncApiUI, RpcError } from "ws-asyncapi";
 import { wsAsyncAPIAdapter } from "@ws-asyncapi/adapter-elysia";
 
 const chat = new Channel("/chat/:room", "chat")
   .$typeChannels<`room:${string}`>()
-  // query/headers use TypeBox (Elysia's connection binding); message payloads
-  // below use Zod — mix validators freely.
-  .query(Type.Object({ token: Type.String() }))
+  // query/headers (and all message payloads) use any Standard Schema validator
+  .query(z.object({ token: z.string() }))
 
   // connection-scoped context (auth, db, decoded user) — typed everywhere
   .resolve(async ({ request }) => ({
@@ -237,8 +235,9 @@ Recovery is automatic and on by default for `LocalBackplane`. Direct `ws.send(..
 
 ## Schema libraries (Standard Schema)
 
-Message payloads can use **any [Standard Schema](https://standardschema.dev) validator** —
-**Zod, Valibot, ArkType** — or **TypeBox**, mixed freely within a channel. Validation, the
+Schemas (message payloads, query/headers) can use **any
+[Standard Schema](https://standardschema.dev) validator** — **Zod, Valibot, ArkType** —
+mixed freely within a channel. Validation, the
 AsyncAPI contract, and the generated typed client work the same regardless. Handlers receive
 the **parsed** value, so transforms / coercion / `.default()` are applied before your code
 runs, and the doc is emitted as JSON Schema (draft-07) so descriptions, formats, enums, and
@@ -255,8 +254,6 @@ unions flow into the contract and the generated client types.
 
   registerJsonSchemaConverter("valibot", (schema) => toJsonSchema(schema as never));
   ```
-
-- **TypeBox** is always supported, and is what Elysia uses for `query` / `headers` binding.
 
 ## Options
 
@@ -321,7 +318,7 @@ wsAsyncAPIAdapter(channels, {
 Presence / fetch-sockets, cluster-wide:
 
 ```ts
-.rpc("online", Type.Object({}), Type.Object({ count: Type.Number() }),
+.rpc("online", z.object({}), z.object({ count: z.number() }),
   async ({ ws }) => ({ count: (await ws.roomMembers("room:1")).length }))
 ```
 
