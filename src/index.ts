@@ -15,6 +15,7 @@ import {
 	openConnection,
 	OutboundRpc,
 	publishEvent,
+	type ServerPlugin,
 	StreamRegistry,
 } from "ws-asyncapi";
 import { WebSocketElysia } from "./websocket.ts";
@@ -33,6 +34,8 @@ export interface WsAsyncAPIAdapterOptions {
 	 * Raise it if you send large in-band payloads.
 	 */
 	maxPayload?: number;
+	/** server-level plugins (metrics, tracing, logging) tapping every channel */
+	plugins?: ServerPlugin[];
 }
 
 export function wsAsyncAPIAdapter(
@@ -134,6 +137,7 @@ export function wsAsyncAPIAdapter(
 			};
 			channel["~"].publishFrame = (topic, frame, except) =>
 				void backplane.publish(topic, codec.encode(frame), undefined, except);
+			if (options.plugins) channel["~"].serverPlugins = options.plugins;
 			if (channel["~"].history.size)
 				backplane.configureHistory?.(
 					Object.fromEntries(channel["~"].history),
