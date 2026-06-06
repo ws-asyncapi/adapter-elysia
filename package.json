@@ -6,17 +6,16 @@
 	"type": "module",
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
-		"@sinclair/typebox": "^0.34.28",
 		"@types/bun": "latest",
 		"pkgroll": "^2.11.2",
-		"ws-asyncapi": "^0.0.8"
+		"ws-asyncapi": "^0.1.0"
 	},
 	"scripts": {
 		"prepublishOnly": "bunx pkgroll"
 	},
 	"peerDependencies": {
 		"elysia": "^1.2.0",
-		"ws-asyncapi": "^0.0.8"
+		"ws-asyncapi": "^0.1.0"
 	},
 	"exports": {
 		".": {
