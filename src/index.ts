@@ -191,32 +191,30 @@ export function wsAsyncAPIAdapter(
 					streams,
 				};
 				await openConnection(channel, conn);
-				// stash mutable per-connection state for message/close handlers
+				// Stash ALL mutable connection state for the message/close handlers.
+				// Unlike the node adapter (one long-lived `conn` per socket), Elysia's
+				// `app.ws` handlers are shared and keyed on `ws`, so every field the
+				// core mutates (sessionId, data, presenceRoom, isPresent, …) must be
+				// carried through `ws.data`. We snapshot the whole `conn` minus the
+				// per-call `ws` wrapper so future core fields are picked up
+				// automatically — enumerating fields by hand is exactly what silently
+				// dropped presenceRoom/isPresent and broke presence in 0.1.0.
+				const { ws: _wsOpen, ...connState } = conn;
 				// @ts-expect-error per-connection state bag
-				ws.data["asyncapi-conn"] = {
-					request,
-					data: conn.data,
-					sessionId: conn.sessionId,
-					outbound,
-					streams,
-				};
+				ws.data["asyncapi-conn"] = connState;
 			},
 			close: async (ws) => {
 				// @ts-expect-error per-connection state bag
 				const state = ws.data["asyncapi-conn"];
 				if (!state) return;
 				await closeConnection(channel, backplane, {
+					...state,
 					ws: new WebSocketElysia<any, any>(
 						ws,
 						codec,
 						backplane,
 						state.outbound,
 					),
-					request: state.request,
-					data: state.data,
-					sessionId: state.sessionId,
-					outbound: state.outbound,
-					streams: state.streams,
 				});
 				registry.delete(ws.id);
 			},
@@ -253,22 +251,21 @@ export function wsAsyncAPIAdapter(
 				}
 
 				const conn: Connection = {
+					...state,
 					ws: new WebSocketElysia<any, any>(
 						ws,
 						codec,
 						backplane,
 						state.outbound,
 					),
-					request: state.request,
-					data: state.data,
-					sessionId: state.sessionId,
-					outbound: state.outbound,
-					streams: state.streams,
 				};
 				await dispatchFrame(channel, backplane, conn, frame);
-				// persist mutations (recovery session id, derived data)
-				state.sessionId = conn.sessionId;
-				state.data = conn.data;
+				// Write back EVERY field the core mutated (sessionId, data,
+				// presenceRoom, isPresent, …) except the per-call ws wrapper, so the
+				// next message/close sees the up-to-date state. Generic on purpose:
+				// a new mutable core field is carried with no adapter change.
+				const { ws: _wsMsg, ...rest } = conn;
+				Object.assign(state, rest);
 			},
 		});
 	}
